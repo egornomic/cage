@@ -88,6 +88,9 @@ ensure_screenshots_dir() {
   local screenshots_dir
 
   screenshots_dir="${CAGE_SCREENSHOTS_DIR:-$HOME/Desktop}"
+  if [[ "$screenshots_dir" == "~" || "$screenshots_dir" == "~/"* ]]; then
+    screenshots_dir="${HOME}${screenshots_dir#\~}"
+  fi
   if [[ -e "$screenshots_dir" && ! -d "$screenshots_dir" ]]; then
     die "CAGE_SCREENSHOTS_DIR is not a directory: $screenshots_dir"
   fi
