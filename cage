@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE' >&2
+devcontainer helper for this template.
+
+usage:
+  cage <repo>            install template, devcontainer up, then tmux
+  cage install <repo>    install template only
+  cage rebuild <repo>    clear build cache, then up + tmux
+  cage exec <repo> -- <cmd>
+  cage upgrade <repo>    update claude/gemini/codex inside devcontainer
+  cage self-install      install cage + template into ~/.local
+
+notes:
+  - install and default run overwrite .devcontainer in the target repo
+  - rebuild keeps named volumes (history, auth) intact
+  - set CAGE_TEMPLATE_DIR to override the template source
+USAGE
+}
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE_FILES=(Dockerfile devcontainer.json post_install.py)
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+normalized_session_name() {
+  local base_name
+  base_name="$(basename -- "$PWD")"
+  printf '%s' "$base_name" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-*//;s/-*$//'
+}
+
+ensure_repo() {
+  local repo_path="$1"
+  [[ -d "$repo_path" ]] || die "repo path does not exist or is not a directory: $repo_path"
+}
+
+find_template_dir() {
+  if [[ -n "${CAGE_TEMPLATE_DIR:-}" && -d "$CAGE_TEMPLATE_DIR" ]]; then
+    echo "$CAGE_TEMPLATE_DIR"
+    return
+  fi
+
+  if [[ -f "$SCRIPT_DIR/Dockerfile" && -f "$SCRIPT_DIR/devcontainer.json" ]]; then
+    echo "$SCRIPT_DIR"
+    return
+  fi
+
+  if [[ -f "$SCRIPT_DIR/../share/cage/template/Dockerfile" && -f "$SCRIPT_DIR/../share/cage/template/devcontainer.json" ]]; then
+    echo "$SCRIPT_DIR/../share/cage/template"
+    return
+  fi
+
+  if [[ -f "$SCRIPT_DIR/template/Dockerfile" && -f "$SCRIPT_DIR/template/devcontainer.json" ]]; then
+    echo "$SCRIPT_DIR/template"
+    return
+  fi
+
+  if [[ -d "$HOME/.local/share/cage/template" ]]; then
+    echo "$HOME/.local/share/cage/template"
+    return
+  fi
+
+  die "template dir not found (set CAGE_TEMPLATE_DIR or run cage self-install)"
+}
+
+copy_template() {
+  local repo_path="$1"
+  local src_dir="$2"
+  local dest_dir="$repo_path/.devcontainer"
+
+  mkdir -p "$dest_dir"
+
+  for f in "${TEMPLATE_FILES[@]}"; do
+    [[ -f "$src_dir/$f" ]] || die "missing template file: $src_dir/$f"
+    cp -f "$src_dir/$f" "$dest_dir/$f"
+  done
+
+
+  echo "✓ devcontainer installed to: $dest_dir" >&2
+}
+
+ensure_screenshots_dir() {
+  local screenshots_dir
+
+  screenshots_dir="${CAGE_SCREENSHOTS_DIR:-$HOME/Desktop}"
+  if [[ -e "$screenshots_dir" && ! -d "$screenshots_dir" ]]; then
+    die "CAGE_SCREENSHOTS_DIR is not a directory: $screenshots_dir"
+  fi
+  if [[ ! -d "$screenshots_dir" ]]; then
+    die "screenshots dir missing: $screenshots_dir (create it or set CAGE_SCREENSHOTS_DIR)"
+  fi
+  export CAGE_SCREENSHOTS_DIR="$screenshots_dir"
+}
+
+replace_template() {
+  local repo_path="$1"
+  local src_dir="$2"
+  local dest_dir="$repo_path/.devcontainer"
+
+  rm -rf "$dest_dir"
+  copy_template "$repo_path" "$src_dir"
+}
+
+require_devcontainer_cli() {
+  if ! command -v devcontainer >/dev/null 2>&1; then
+    if [[ -n "${NVM_DIR:-}" && -s "$NVM_DIR/nvm.sh" ]]; then
+      # Allow non-interactive shells to find devcontainer via nvm.
+      # shellcheck source=/dev/null
+      . "$NVM_DIR/nvm.sh"
+    elif [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+      # shellcheck source=/dev/null
+      . "$HOME/.nvm/nvm.sh"
+    fi
+  fi
+
+  if ! command -v devcontainer >/dev/null 2>&1; then
+    echo "error: devcontainer cli not found" >&2
+    echo "hint: npm install -g @devcontainers/cli" >&2
+    exit 1
+  fi
+}
+
+install_tools() {
+  local repo_path="$1"
+
+  devcontainer exec --workspace-folder "$repo_path" npm install -g \
+    @google/gemini-cli \
+    @anthropic-ai/claude-code \
+    @openai/codex
+}
+
+self_install() {
+  local bin_dir="$HOME/.local/bin"
+  local share_dir="$HOME/.local/share/cage/template"
+  local template_src
+
+  template_src="$(find_template_dir)"
+
+  mkdir -p "$bin_dir" "$share_dir"
+
+  cp -f "$SCRIPT_DIR/$(basename -- "$0")" "$bin_dir/cage"
+  chmod +x "$bin_dir/cage"
+
+  rm -rf "$share_dir"
+  mkdir -p "$share_dir"
+  for f in "${TEMPLATE_FILES[@]}"; do
+    [[ -f "$template_src/$f" ]] || die "missing template file: $template_src/$f"
+    cp -f "$template_src/$f" "$share_dir/$f"
+  done
+
+  echo "✓ installed cage to $bin_dir/cage" >&2
+  echo "✓ installed template to $share_dir" >&2
+  echo "note: ensure $bin_dir is on your PATH" >&2
+}
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 1
+fi
+
+cmd="$1"
+shift
+
+case "$cmd" in
+  help|-h|--help)
+    usage
+    exit 0
+    ;;
+  self-install)
+    self_install
+    exit 0
+    ;;
+  install|rebuild|exec|upgrade)
+    ;;
+  *)
+    set -- "$cmd" "$@"
+    cmd="up"
+    ;;
+esac
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 1
+fi
+
+REPO_PATH="$1"
+shift
+
+ensure_repo "$REPO_PATH"
+TEMPLATE_DIR="$(find_template_dir)"
+TMUX_SESSION="$(normalized_session_name)"
+
+case "$cmd" in
+  install)
+    copy_template "$REPO_PATH" "$TEMPLATE_DIR"
+    exit 0
+    ;;
+  rebuild)
+    replace_template "$REPO_PATH" "$TEMPLATE_DIR"
+    ensure_screenshots_dir
+    require_devcontainer_cli
+    devcontainer up --workspace-folder "$REPO_PATH" --remove-existing-container
+    devcontainer exec --workspace-folder "$REPO_PATH" tmux new -As "$TMUX_SESSION"
+    ;;
+  up)
+    copy_template "$REPO_PATH" "$TEMPLATE_DIR"
+    ensure_screenshots_dir
+    require_devcontainer_cli
+    devcontainer up --workspace-folder "$REPO_PATH"
+    devcontainer exec --workspace-folder "$REPO_PATH" tmux new -As "$TMUX_SESSION"
+    ;;
+  exec)
+    copy_template "$REPO_PATH" "$TEMPLATE_DIR"
+    ensure_screenshots_dir
+    require_devcontainer_cli
+    if [[ $# -gt 0 && "$1" == "--" ]]; then
+      shift
+    fi
+    [[ $# -gt 0 ]] || die "exec requires a command"
+    devcontainer exec --workspace-folder "$REPO_PATH" "$@"
+    ;;
+  upgrade)
+    copy_template "$REPO_PATH" "$TEMPLATE_DIR"
+    ensure_screenshots_dir
+    require_devcontainer_cli
+    devcontainer up --workspace-folder "$REPO_PATH"
+    install_tools "$REPO_PATH"
+    ;;
+esac
