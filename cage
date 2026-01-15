@@ -10,6 +10,7 @@ usage:
   cage install <repo>    install template only
   cage rebuild <repo>    clear build cache, then up + tmux
   cage exec <repo> -- <cmd>
+  cage mount <repo> <host_path> <container_path> [--readonly]
   cage upgrade <repo>    update claude/gemini/codex inside devcontainer
   cage self-install      install cage + template into ~/.local
 
@@ -68,6 +69,118 @@ find_template_dir() {
   die "template dir not found (set CAGE_TEMPLATE_DIR or run cage self-install)"
 }
 
+extract_mounts_to_file() {
+  local devcontainer_path="$1"
+  local output_path="$2"
+
+  python3 - "$devcontainer_path" "$output_path" <<'PY'
+import json
+import sys
+
+def die(msg):
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+if len(sys.argv) != 3:
+    die("extract mounts requires source and destination")
+
+src_path, out_path = sys.argv[1:]
+
+try:
+    with open(src_path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except FileNotFoundError:
+    sys.exit(0)
+
+mounts = data.get("mounts")
+if mounts is None:
+    mounts = []
+if not isinstance(mounts, list):
+    die("mounts must be a JSON array")
+
+for entry in mounts:
+    if not isinstance(entry, str):
+        die("mounts entries must be strings")
+
+with open(out_path, "w", encoding="utf-8") as fh:
+    json.dump(mounts, fh)
+PY
+}
+
+merge_mounts_from_file() {
+  local devcontainer_path="$1"
+  local mounts_path="$2"
+
+  python3 - "$devcontainer_path" "$mounts_path" <<'PY'
+import json
+import sys
+from typing import Optional
+
+def die(msg):
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+if len(sys.argv) != 3:
+    die("merge mounts requires devcontainer.json and mounts file")
+
+devcontainer_path, mounts_path = sys.argv[1:]
+
+try:
+    with open(devcontainer_path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except FileNotFoundError:
+    die(f"devcontainer.json not found: {devcontainer_path}")
+
+try:
+    with open(mounts_path, "r", encoding="utf-8") as fh:
+        existing_mounts = json.load(fh)
+except FileNotFoundError:
+    existing_mounts = []
+
+if existing_mounts is None:
+    existing_mounts = []
+if not isinstance(existing_mounts, list):
+    die("existing mounts must be a JSON array")
+
+def parse_target(value: str) -> Optional[str]:
+    for part in value.split(","):
+        if "=" in part:
+            key, val = part.split("=", 1)
+            if key == "target":
+                return val
+    return None
+
+mounts = data.get("mounts")
+if mounts is None:
+    mounts = []
+if not isinstance(mounts, list):
+    die("mounts must be a JSON array")
+
+merged = list(mounts)
+targets = {}
+for idx, entry in enumerate(merged):
+    if not isinstance(entry, str):
+        die("mounts entries must be strings")
+    target = parse_target(entry)
+    if target:
+        targets[target] = idx
+
+for entry in existing_mounts:
+    if not isinstance(entry, str):
+        die("existing mounts entries must be strings")
+    target = parse_target(entry)
+    if target and target in targets:
+        merged[targets[target]] = entry
+    else:
+        merged.append(entry)
+
+data["mounts"] = merged
+with open(devcontainer_path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+PY
+}
+
 copy_template() {
   local repo_path="$1"
   local src_dir="$2"
@@ -75,10 +188,21 @@ copy_template() {
 
   mkdir -p "$dest_dir"
 
+  local existing_mounts_file="${3:-}"
+  if [[ -z "$existing_mounts_file" && -f "$dest_dir/devcontainer.json" ]]; then
+    existing_mounts_file="$(mktemp)"
+    extract_mounts_to_file "$dest_dir/devcontainer.json" "$existing_mounts_file"
+  fi
+
   for f in "${TEMPLATE_FILES[@]}"; do
     [[ -f "$src_dir/$f" ]] || die "missing template file: $src_dir/$f"
     cp -f "$src_dir/$f" "$dest_dir/$f"
   done
+
+  if [[ -n "$existing_mounts_file" && -f "$existing_mounts_file" ]]; then
+    merge_mounts_from_file "$dest_dir/devcontainer.json" "$existing_mounts_file"
+    rm -f "$existing_mounts_file" || true
+  fi
 
 
   echo "✓ devcontainer installed to: $dest_dir" >&2
@@ -104,9 +228,18 @@ replace_template() {
   local repo_path="$1"
   local src_dir="$2"
   local dest_dir="$repo_path/.devcontainer"
+  local existing_mounts_file=""
+
+  if [[ -f "$dest_dir/devcontainer.json" ]]; then
+    existing_mounts_file="$(mktemp)"
+    extract_mounts_to_file "$dest_dir/devcontainer.json" "$existing_mounts_file"
+  fi
 
   rm -rf "$dest_dir"
-  copy_template "$repo_path" "$src_dir"
+  copy_template "$repo_path" "$src_dir" "$existing_mounts_file"
+  if [[ -n "$existing_mounts_file" ]]; then
+    rm -f "$existing_mounts_file" || true
+  fi
 }
 
 require_devcontainer_cli() {
@@ -137,6 +270,86 @@ install_tools() {
     @openai/codex
 }
 
+update_devcontainer_mounts() {
+  local devcontainer_path="$1"
+  local host_path="$2"
+  local container_path="$3"
+  local readonly="$4"
+
+  python3 - "$devcontainer_path" "$host_path" "$container_path" "$readonly" <<'PY'
+import json
+import os
+import sys
+from typing import Optional
+
+def die(msg):
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+if len(sys.argv) != 5:
+    die("update_devcontainer_mounts requires 4 arguments")
+
+devcontainer_path, host_path, container_path, readonly = sys.argv[1:]
+
+if readonly not in ("true", "false"):
+    die("readonly must be true or false")
+
+if not os.path.isabs(host_path):
+    die(f"host path must be absolute: {host_path}")
+if not os.path.isdir(host_path):
+    die(f"host path is not a directory: {host_path}")
+if not os.path.isabs(container_path):
+    die(f"container path must be absolute: {container_path}")
+
+try:
+    with open(devcontainer_path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except FileNotFoundError:
+    die(f"devcontainer.json not found: {devcontainer_path}")
+
+mounts = data.get("mounts")
+if mounts is None:
+    mounts = []
+if not isinstance(mounts, list):
+    die("mounts must be a JSON array")
+
+for entry in mounts:
+    if not isinstance(entry, str):
+        die("mounts entries must be strings")
+
+mount_entry = f"source={host_path},target={container_path},type=bind,consistency=cached"
+if readonly == "true":
+    mount_entry += ",readonly"
+
+def parse_target(value: str) -> Optional[str]:
+    for part in value.split(","):
+        if "=" in part:
+            key, val = part.split("=", 1)
+            if key == "target":
+                return val
+    return None
+
+new_mounts = []
+replaced = False
+for entry in mounts:
+    target = parse_target(entry)
+    if target == container_path:
+        if not replaced:
+            new_mounts.append(mount_entry)
+            replaced = True
+        continue
+    new_mounts.append(entry)
+
+if not replaced:
+    new_mounts.append(mount_entry)
+
+data["mounts"] = new_mounts
+with open(devcontainer_path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+PY
+}
+
 self_install() {
   local bin_dir="$HOME/.local/bin"
   local share_dir="$HOME/.local/share/cage/template"
@@ -161,77 +374,117 @@ self_install() {
   echo "note: ensure $bin_dir is on your PATH" >&2
 }
 
-if [[ $# -lt 1 ]]; then
-  usage
-  exit 1
-fi
-
-cmd="$1"
-shift
-
-case "$cmd" in
-  help|-h|--help)
+main() {
+  if [[ $# -lt 1 ]]; then
     usage
-    exit 0
-    ;;
-  self-install)
-    self_install
-    exit 0
-    ;;
-  install|rebuild|exec|upgrade)
-    ;;
-  *)
-    set -- "$cmd" "$@"
-    cmd="up"
-    ;;
-esac
+    exit 1
+  fi
 
-if [[ $# -lt 1 ]]; then
-  usage
-  exit 1
+  cmd="$1"
+  shift
+
+  case "$cmd" in
+    help|-h|--help)
+      usage
+      exit 0
+      ;;
+    self-install)
+      self_install
+      exit 0
+      ;;
+    install|rebuild|exec|upgrade|mount)
+      ;;
+    *)
+      set -- "$cmd" "$@"
+      cmd="up"
+      ;;
+  esac
+
+  if [[ $# -lt 1 ]]; then
+    usage
+    exit 1
+  fi
+
+  REPO_PATH="$1"
+  shift
+
+  ensure_repo "$REPO_PATH"
+  TEMPLATE_DIR="$(find_template_dir)"
+  TMUX_SESSION="$(normalized_session_name)"
+
+  case "$cmd" in
+    install)
+      copy_template "$REPO_PATH" "$TEMPLATE_DIR"
+      exit 0
+      ;;
+    rebuild)
+      replace_template "$REPO_PATH" "$TEMPLATE_DIR"
+      ensure_screenshots_dir
+      require_devcontainer_cli
+      devcontainer up --workspace-folder "$REPO_PATH" --remove-existing-container
+      devcontainer exec --workspace-folder "$REPO_PATH" tmux new -As "$TMUX_SESSION"
+      ;;
+    up)
+      copy_template "$REPO_PATH" "$TEMPLATE_DIR"
+      ensure_screenshots_dir
+      require_devcontainer_cli
+      devcontainer up --workspace-folder "$REPO_PATH"
+      devcontainer exec --workspace-folder "$REPO_PATH" tmux new -As "$TMUX_SESSION"
+      ;;
+    exec)
+      copy_template "$REPO_PATH" "$TEMPLATE_DIR"
+      ensure_screenshots_dir
+      require_devcontainer_cli
+      if [[ $# -gt 0 && "$1" == "--" ]]; then
+        shift
+      fi
+      [[ $# -gt 0 ]] || die "exec requires a command"
+      devcontainer exec --workspace-folder "$REPO_PATH" "$@"
+      ;;
+    upgrade)
+      copy_template "$REPO_PATH" "$TEMPLATE_DIR"
+      ensure_screenshots_dir
+      require_devcontainer_cli
+      devcontainer up --workspace-folder "$REPO_PATH"
+      install_tools "$REPO_PATH"
+      ;;
+    mount)
+      local host_path=""
+      local container_path=""
+      local readonly="false"
+
+      host_path="${1:-}"
+      container_path="${2:-}"
+      shift 2 || true
+
+      if [[ -z "$host_path" || -z "$container_path" ]]; then
+        die "mount requires <host_path> <container_path> [--readonly]"
+      fi
+
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --readonly)
+            readonly="true"
+            shift
+            ;;
+          *)
+            die "unknown mount option: $1"
+            ;;
+        esac
+      done
+
+      if [[ ! -f "$REPO_PATH/.devcontainer/devcontainer.json" ]]; then
+        copy_template "$REPO_PATH" "$TEMPLATE_DIR"
+      fi
+
+      update_devcontainer_mounts "$REPO_PATH/.devcontainer/devcontainer.json" "$host_path" "$container_path" "$readonly"
+      ensure_screenshots_dir
+      require_devcontainer_cli
+      devcontainer up --workspace-folder "$REPO_PATH" --remove-existing-container
+      ;;
+  esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
 fi
-
-REPO_PATH="$1"
-shift
-
-ensure_repo "$REPO_PATH"
-TEMPLATE_DIR="$(find_template_dir)"
-TMUX_SESSION="$(normalized_session_name)"
-
-case "$cmd" in
-  install)
-    copy_template "$REPO_PATH" "$TEMPLATE_DIR"
-    exit 0
-    ;;
-  rebuild)
-    replace_template "$REPO_PATH" "$TEMPLATE_DIR"
-    ensure_screenshots_dir
-    require_devcontainer_cli
-    devcontainer up --workspace-folder "$REPO_PATH" --remove-existing-container
-    devcontainer exec --workspace-folder "$REPO_PATH" tmux new -As "$TMUX_SESSION"
-    ;;
-  up)
-    copy_template "$REPO_PATH" "$TEMPLATE_DIR"
-    ensure_screenshots_dir
-    require_devcontainer_cli
-    devcontainer up --workspace-folder "$REPO_PATH"
-    devcontainer exec --workspace-folder "$REPO_PATH" tmux new -As "$TMUX_SESSION"
-    ;;
-  exec)
-    copy_template "$REPO_PATH" "$TEMPLATE_DIR"
-    ensure_screenshots_dir
-    require_devcontainer_cli
-    if [[ $# -gt 0 && "$1" == "--" ]]; then
-      shift
-    fi
-    [[ $# -gt 0 ]] || die "exec requires a command"
-    devcontainer exec --workspace-folder "$REPO_PATH" "$@"
-    ;;
-  upgrade)
-    copy_template "$REPO_PATH" "$TEMPLATE_DIR"
-    ensure_screenshots_dir
-    require_devcontainer_cli
-    devcontainer up --workspace-folder "$REPO_PATH"
-    install_tools "$REPO_PATH"
-    ;;
-esac

@@ -28,6 +28,7 @@ Fallback (from source):
 - `cage install <repo>`: install template only.
 - `cage rebuild <repo>`: replace template, rebuild container, open tmux.
 - `cage exec <repo> -- <cmd>`: run a command inside the devcontainer.
+- `cage mount <repo> <host_path> <container_path> [--readonly]`: add a bind mount and recreate the container.
 - `cage upgrade <repo>`: update claude/gemini/codex inside the devcontainer.
 
 Notes:
