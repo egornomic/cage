@@ -210,6 +210,7 @@ def main() -> None:
     ensure_dir_ownership(Path("/commandhistory"))
     ensure_dir_ownership(Path.home() / ".claude")
     ensure_dir_ownership(Path.home() / ".codex")
+    ensure_dir_ownership(Path.home() / ".gemini")
     ensure_dir_ownership(Path.home() / ".config" / "gh")
     ensure_fish_history()
     ensure_codex_config()
