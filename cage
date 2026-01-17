@@ -12,7 +12,6 @@ usage:
   cage exec <repo> -- <cmd>
   cage mount <repo> <host_path> <container_path> [--readonly]
   cage upgrade <repo>    update claude/gemini/codex inside devcontainer
-  cage self-install      install cage + template into ~/.local
 
 notes:
   - install and default run overwrite .devcontainer in the target repo
@@ -66,7 +65,7 @@ find_template_dir() {
     return
   fi
 
-  die "template dir not found (set CAGE_TEMPLATE_DIR or run cage self-install)"
+  die "template dir not found (set CAGE_TEMPLATE_DIR or install template)"
 }
 
 extract_mounts_to_file() {
@@ -350,30 +349,6 @@ with open(devcontainer_path, "w", encoding="utf-8") as fh:
 PY
 }
 
-self_install() {
-  local bin_dir="$HOME/.local/bin"
-  local share_dir="$HOME/.local/share/cage/template"
-  local template_src
-
-  template_src="$(find_template_dir)"
-
-  mkdir -p "$bin_dir" "$share_dir"
-
-  cp -f "$SCRIPT_DIR/$(basename -- "$0")" "$bin_dir/cage"
-  chmod +x "$bin_dir/cage"
-
-  rm -rf "$share_dir"
-  mkdir -p "$share_dir"
-  for f in "${TEMPLATE_FILES[@]}"; do
-    [[ -f "$template_src/$f" ]] || die "missing template file: $template_src/$f"
-    cp -f "$template_src/$f" "$share_dir/$f"
-  done
-
-  echo "✓ installed cage to $bin_dir/cage" >&2
-  echo "✓ installed template to $share_dir" >&2
-  echo "note: ensure $bin_dir is on your PATH" >&2
-}
-
 main() {
   if [[ $# -lt 1 ]]; then
     usage
@@ -386,10 +361,6 @@ main() {
   case "$cmd" in
     help|-h|--help)
       usage
-      exit 0
-      ;;
-    self-install)
-      self_install
       exit 0
       ;;
     install|rebuild|exec|upgrade|mount)

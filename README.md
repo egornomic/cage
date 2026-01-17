@@ -22,6 +22,8 @@ Fallback (from source):
 ./install.sh
 ```
 
+This installs `cage` to `~/.local/bin` and the template to `~/.local/share/cage/template`.
+
 ## Usage
 
 - `cage <repo>` or `cage .`: install template, start devcontainer, open tmux.
