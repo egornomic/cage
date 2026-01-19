@@ -46,6 +46,8 @@ bind r source-file ~/.tmux.conf \\; display-message "tmux.conf reloaded"
 
 # Terminal features
 set -as terminal-features ",xterm-ghostty:RGB"
+set -as terminal-features ",xterm*:RGB"
+set -ga terminal-overrides ",xterm*:colors=256"
 set -ga terminal-overrides '*:Ss=\\E[%p1%d q:Se=\\E[ q'
 """
 
