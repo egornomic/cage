@@ -31,7 +31,7 @@ This installs `cage` to `~/.local/bin` and the template to `~/.local/share/cage/
 - `cage rebuild <repo>`: replace template, rebuild container, open tmux.
 - `cage exec <repo> -- <cmd>`: run a command inside the devcontainer.
 - `cage mount <repo> <host_path> <container_path> [--readonly]`: add a bind mount and recreate the container.
-- `cage upgrade <repo>`: update claude/gemini/codex inside the devcontainer.
+- `cage upgrade <repo>`: update claude/codex/pi inside the devcontainer.
 
 Notes:
 - After first install, log in once (or paste auth tokens from host). Auth persists across containers via mounted config volumes.

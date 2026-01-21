@@ -11,7 +11,7 @@ FROM ${NODE_IMAGE} AS node
 
 ARG CLAUDE_CODE_VERSION=latest
 ARG CODEX_VERSION=latest
-ARG GEMINI_CLI_VERSION=latest
+ARG PI_VERSION=latest
 
 # Build-time npm defaults.
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global \
@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/root/.npm \
   npm install -g \
     "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CODEX_VERSION}" \
-    "@google/gemini-cli@${GEMINI_CLI_VERSION}" \
+    "@mariozechner/pi-coding-agent@${PI_VERSION}" \
   && corepack enable --install-directory /usr/local/share/npm-global/bin \
   && corepack prepare pnpm@latest --activate
 
@@ -40,7 +40,7 @@ ENV TZ="${TZ}"
 
 ARG CLAUDE_CODE_VERSION=latest
 ARG CODEX_VERSION=latest
-ARG GEMINI_CLI_VERSION=latest
+ARG PI_VERSION=latest
 
 # Install common dev tools.
 # Note: we intentionally do NOT install iptables/ipset or ship a firewall script.
@@ -118,9 +118,9 @@ RUN echo '. /etc/profile.d/00-commandhistory.sh' >> /etc/bash.bashrc \
 ENV DEVCONTAINER=true
 
 # Create workspace + agent config dirs and set permissions.
-RUN mkdir -p /workspace /home/node/.claude /home/node/.codex /home/node/.gemini /home/node/.npm /home/node/.config/fish \
+RUN mkdir -p /workspace /home/node/.claude /home/node/.codex /home/node/.pi /home/node/.npm /home/node/.config/fish \
   && touch /home/node/.zshrc \
-  && chown -R node:node /workspace /home/node/.claude /home/node/.codex /home/node/.gemini /home/node/.npm /home/node/.config /home/node/.zshrc
+  && chown -R node:node /workspace /home/node/.claude /home/node/.codex /home/node/.pi /home/node/.npm /home/node/.config /home/node/.zshrc
 
 WORKDIR /workspace
 

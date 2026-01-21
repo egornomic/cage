@@ -11,7 +11,7 @@ usage:
   cage rebuild <repo>    clear build cache, then up + tmux
   cage exec <repo> -- <cmd>
   cage mount <repo> <host_path> <container_path> [--readonly]
-  cage upgrade <repo>    update claude/gemini/codex inside devcontainer
+  cage upgrade <repo>    update claude/codex/pi inside devcontainer
 
 notes:
   - install and default run overwrite .devcontainer in the target repo
@@ -264,9 +264,9 @@ install_tools() {
   local repo_path="$1"
 
   devcontainer exec --workspace-folder "$repo_path" npm install -g \
-    @google/gemini-cli \
     @anthropic-ai/claude-code \
-    @openai/codex
+    @openai/codex \
+    @mariozechner/pi-coding-agent
 }
 
 update_devcontainer_mounts() {

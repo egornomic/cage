@@ -7,7 +7,7 @@
       "TZ": "${localEnv:TZ:UTC}",
       "CLAUDE_CODE_VERSION": "latest",
       "CODEX_VERSION": "latest",
-      "GEMINI_CLI_VERSION": "latest"
+      "PI_VERSION": "latest"
     }
   },
   "runArgs": [
@@ -48,7 +48,7 @@
     "source=commandhistory,target=/commandhistory,type=volume",
     "source=claude-code-config,target=/home/node/.claude,type=volume",
     "source=codex-config,target=/home/node/.codex,type=volume",
-    "source=gemini-config,target=/home/node/.gemini,type=volume",
+    "source=pi-config,target=/home/node/.pi,type=volume",
     "source=gh-config,target=/home/node/.config/gh,type=volume",
     "source=${localEnv:HOME}/.gitconfig,target=/home/node/.gitconfig,type=bind,consistency=cached,readonly",
     "source=${localEnv:HOME}/.config/git/ignore,target=${localEnv:HOME}/.config/git/ignore,type=bind,consistency=cached,readonly",
@@ -58,7 +58,6 @@
     "source=${localEnv:HOME}/.codex/skills,target=/home/node/.codex/skills,type=bind,consistency=cached,readonly",
     "source=${localEnv:HOME}/.codex/prompts,target=/home/node/.codex/prompts,type=bind,consistency=cached,readonly",
     "source=${localEnv:HOME}/.codex/AGENTS.md,target=/home/node/.codex/AGENTS.md,type=bind,consistency=cached,readonly",
-    "source=${localEnv:HOME}/.gemini/commands,target=/home/node/.gemini/commands,type=bind,consistency=cached,readonly",
     "source=${localEnv:CAGE_SCREENSHOTS_DIR},target=/home/node/Screenshots,type=bind,consistency=cached,readonly"
   ],
   "containerEnv": {
