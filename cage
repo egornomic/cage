@@ -11,6 +11,7 @@ usage:
   cage rebuild <repo>    clear build cache, then up + tmux
   cage exec <repo> -- <cmd>
   cage down <repo>       stop and remove devcontainer
+  cage stop <repo>       stop devcontainer
   cage mount <repo> <host_path> <container_path> [--readonly]
   cage upgrade <repo>    update claude/codex/pi inside devcontainer
 
@@ -377,7 +378,7 @@ main() {
       usage
       exit 0
       ;;
-    install|rebuild|exec|upgrade|mount|down)
+    install|rebuild|exec|upgrade|mount|down|stop)
       ;;
     *)
       set -- "$cmd" "$@"
@@ -446,6 +447,24 @@ main() {
       fi
 
       docker rm -f $containers
+      ;;
+    stop)
+      require_docker_cli
+      local label="devcontainer.local_folder=$REPO_PATH"
+      local containers=""
+
+      containers="$(docker ps --filter "label=$label" -q)"
+      if [[ -z "$containers" ]]; then
+        containers="$(docker ps -a --filter "label=$label" -q)"
+        if [[ -z "$containers" ]]; then
+          echo "no devcontainer found for: $REPO_PATH" >&2
+          exit 0
+        fi
+        echo "devcontainer already stopped for: $REPO_PATH" >&2
+        exit 0
+      fi
+
+      docker stop $containers
       ;;
     mount)
       local host_path=""
