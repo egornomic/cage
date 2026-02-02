@@ -30,6 +30,7 @@ This installs `cage` to `~/.local/bin` and the template to `~/.local/share/cage/
 - `cage install <repo>`: install template only.
 - `cage rebuild <repo>`: replace template, rebuild container, open tmux.
 - `cage exec <repo> -- <cmd>`: run a command inside the devcontainer.
+- `cage down <repo>`: stop and remove the devcontainer.
 - `cage mount <repo> <host_path> <container_path> [--readonly]`: add a bind mount and recreate the container.
 - `cage upgrade <repo>`: update claude/codex/pi inside the devcontainer.
 

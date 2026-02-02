@@ -10,6 +10,7 @@ usage:
   cage install <repo>    install template only
   cage rebuild <repo>    clear build cache, then up + tmux
   cage exec <repo> -- <cmd>
+  cage down <repo>       stop and remove devcontainer
   cage mount <repo> <host_path> <container_path> [--readonly]
   cage upgrade <repo>    update claude/codex/pi inside devcontainer
 
@@ -37,6 +38,11 @@ normalized_session_name() {
 ensure_repo() {
   local repo_path="$1"
   [[ -d "$repo_path" ]] || die "repo path does not exist or is not a directory: $repo_path"
+}
+
+resolve_repo_path() {
+  local repo_path="$1"
+  (cd -- "$repo_path" && pwd)
 }
 
 find_template_dir() {
@@ -260,6 +266,14 @@ require_devcontainer_cli() {
   fi
 }
 
+require_docker_cli() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "error: docker cli not found" >&2
+    echo "hint: install Docker Desktop or OrbStack" >&2
+    exit 1
+  fi
+}
+
 install_tools() {
   local repo_path="$1"
 
@@ -363,7 +377,7 @@ main() {
       usage
       exit 0
       ;;
-    install|rebuild|exec|upgrade|mount)
+    install|rebuild|exec|upgrade|mount|down)
       ;;
     *)
       set -- "$cmd" "$@"
@@ -380,6 +394,7 @@ main() {
   shift
 
   ensure_repo "$REPO_PATH"
+  REPO_PATH="$(resolve_repo_path "$REPO_PATH")"
   TEMPLATE_DIR="$(find_template_dir)"
   TMUX_SESSION="$(normalized_session_name)"
 
@@ -418,6 +433,19 @@ main() {
       require_devcontainer_cli
       devcontainer up --workspace-folder "$REPO_PATH"
       install_tools "$REPO_PATH"
+      ;;
+    down)
+      require_docker_cli
+      local label="devcontainer.local_folder=$REPO_PATH"
+      local containers=""
+
+      containers="$(docker ps -a --filter "label=$label" -q)"
+      if [[ -z "$containers" ]]; then
+        echo "no devcontainer found for: $REPO_PATH" >&2
+        exit 0
+      fi
+
+      docker rm -f $containers
       ;;
     mount)
       local host_path=""
