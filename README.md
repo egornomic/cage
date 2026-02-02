@@ -28,7 +28,7 @@ This installs `cage` to `~/.local/bin` and the template to `~/.local/share/cage/
 
 - `cage <repo>` or `cage .`: install template, start devcontainer, open tmux.
 - `cage install <repo>`: install template only.
-- `cage rebuild <repo>`: replace template, rebuild container, open tmux.
+- `cage rebuild <repo>`: replace template, rebuild container without build cache, open tmux.
 - `cage exec <repo> -- <cmd>`: run a command inside the devcontainer.
 - `cage down <repo>`: stop and remove the devcontainer.
 - `cage stop <repo>`: stop the devcontainer without removing it.
