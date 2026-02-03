@@ -12,7 +12,9 @@
   },
   "runArgs": [
     "--name",
-    "${localWorkspaceFolderBasename}"
+    "${localWorkspaceFolderBasename}",
+    "--label",
+    "cage.managed=true"
   ],
   "customizations": {
     "vscode": {

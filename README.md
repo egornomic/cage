@@ -34,6 +34,7 @@ This installs `cage` to `~/.local/bin` and the template to `~/.local/share/cage/
 - `cage stop <repo>`: stop the devcontainer without removing it.
 - `cage mount <repo> <host_path> <container_path> [--readonly]`: add a bind mount and recreate the container.
 - `cage upgrade <repo>`: update claude/codex/pi inside the devcontainer.
+- `cage upgrade-all`: update claude/codex/pi in running cage containers.
 
 Notes:
 - After first install, log in once (or paste auth tokens from host). Auth persists across containers via mounted config volumes.

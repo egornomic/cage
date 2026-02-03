@@ -14,6 +14,7 @@ usage:
   cage stop <repo>       stop devcontainer
   cage mount <repo> <host_path> <container_path> [--readonly]
   cage upgrade <repo>    update claude/codex/pi inside devcontainer
+  cage upgrade-all       update claude/codex/pi in running cage containers
 
 notes:
   - install and default run overwrite .devcontainer in the target repo
@@ -284,6 +285,35 @@ install_tools() {
     @mariozechner/pi-coding-agent
 }
 
+list_running_cage_repos() {
+  local containers=""
+
+  containers="$(docker ps --filter "label=cage.managed=true" -q)"
+  if [[ -z "$containers" ]]; then
+    return 0
+  fi
+
+  local container=""
+  for container in $containers; do
+    local repo_path=""
+    repo_path="$(docker inspect -f '{{ index .Config.Labels "devcontainer.local_folder" }}' "$container" 2>/dev/null || true)"
+    if [[ -z "$repo_path" || "$repo_path" == "<no value>" ]]; then
+      continue
+    fi
+    echo "$repo_path"
+  done
+}
+
+upgrade_repo() {
+  local repo_path="$1"
+
+  copy_template "$repo_path" "$TEMPLATE_DIR"
+  ensure_screenshots_dir
+  require_devcontainer_cli
+  devcontainer up --workspace-folder "$repo_path"
+  install_tools "$repo_path"
+}
+
 update_devcontainer_mounts() {
   local devcontainer_path="$1"
   local host_path="$2"
@@ -373,6 +403,8 @@ main() {
   cmd="$1"
   shift
 
+  local needs_repo="true"
+
   case "$cmd" in
     help|-h|--help)
       usage
@@ -380,24 +412,33 @@ main() {
       ;;
     install|rebuild|exec|upgrade|mount|down|stop)
       ;;
+    upgrade-all)
+      needs_repo="false"
+      ;;
     *)
       set -- "$cmd" "$@"
       cmd="up"
       ;;
   esac
 
-  if [[ $# -lt 1 ]]; then
+  TEMPLATE_DIR="$(find_template_dir)"
+
+  if [[ "$needs_repo" == "true" ]]; then
+    if [[ $# -lt 1 ]]; then
+      usage
+      exit 1
+    fi
+
+    REPO_PATH="$1"
+    shift
+
+    ensure_repo "$REPO_PATH"
+    REPO_PATH="$(resolve_repo_path "$REPO_PATH")"
+    TMUX_SESSION="$(normalized_session_name)"
+  elif [[ $# -gt 0 ]]; then
     usage
     exit 1
   fi
-
-  REPO_PATH="$1"
-  shift
-
-  ensure_repo "$REPO_PATH"
-  REPO_PATH="$(resolve_repo_path "$REPO_PATH")"
-  TEMPLATE_DIR="$(find_template_dir)"
-  TMUX_SESSION="$(normalized_session_name)"
 
   case "$cmd" in
     install)
@@ -429,11 +470,31 @@ main() {
       devcontainer exec --workspace-folder "$REPO_PATH" "$@"
       ;;
     upgrade)
-      copy_template "$REPO_PATH" "$TEMPLATE_DIR"
-      ensure_screenshots_dir
-      require_devcontainer_cli
-      devcontainer up --workspace-folder "$REPO_PATH"
-      install_tools "$REPO_PATH"
+      upgrade_repo "$REPO_PATH"
+      ;;
+    upgrade-all)
+      require_docker_cli
+      local repo_paths=()
+      local repo_path=""
+
+      while IFS= read -r repo_path; do
+        [[ -z "$repo_path" ]] && continue
+        repo_paths+=("$repo_path")
+      done < <(list_running_cage_repos)
+
+      if [[ ${#repo_paths[@]} -eq 0 ]]; then
+        echo "no running cage containers found" >&2
+        exit 0
+      fi
+
+      for repo_path in "${repo_paths[@]}"; do
+        if [[ ! -d "$repo_path" ]]; then
+          echo "warning: repo path missing: $repo_path" >&2
+          continue
+        fi
+        repo_path="$(resolve_repo_path "$repo_path")"
+        upgrade_repo "$repo_path"
+      done
       ;;
     down)
       require_docker_cli
