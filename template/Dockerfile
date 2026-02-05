@@ -76,7 +76,7 @@ RUN node -v && npm -v
 
 # Ensure git worktrees use relative paths by default.
 RUN git config --system worktree.useRelativePaths true \
-  && git config --system --add safe.directory /workspace
+  && git config --system --add safe.directory '*'
 
 RUN if ! id -u "node" >/dev/null 2>&1; then \
     useradd -m -s /usr/bin/fish "node"; \

@@ -78,12 +78,20 @@ def run_sudo(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 def resolve_workspace() -> Path:
     env_workspace = os.environ.get("WORKSPACE_FOLDER")
+    candidates = []
     if env_workspace:
-        workspace = Path(env_workspace)
-    else:
-        workspace = Path("/workspace")
-    if workspace.exists():
-        return workspace
+        candidates.append(Path(env_workspace))
+    candidates.append(Path.cwd())
+    candidates.append(Path("/workspace"))
+
+    # Prefer whatever looks like the actual repo. This keeps working even if the
+    # container workspace isn't mounted at /workspace anymore.
+    for candidate in candidates:
+        if candidate.is_dir() and is_git_repo(candidate):
+            return candidate
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
     return Path.cwd()
 
 
