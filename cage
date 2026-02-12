@@ -276,6 +276,29 @@ require_docker_cli() {
   fi
 }
 
+require_docker_daemon() {
+  require_docker_cli
+
+  local docker_context=""
+  local docker_error=""
+  docker_context="$(docker context show 2>/dev/null || true)"
+
+  if ! docker_error="$(docker ps 2>&1 >/dev/null)"; then
+    echo "error: cannot connect to Docker daemon" >&2
+    if [[ "$docker_context" == "orbstack" ]]; then
+      echo "hint: start OrbStack, then retry" >&2
+      echo "hint: or run 'docker context use default' to use Docker Desktop" >&2
+    else
+      echo "hint: start Docker Desktop or OrbStack, then retry" >&2
+    fi
+    if [[ -n "$docker_context" ]]; then
+      echo "docker context: $docker_context" >&2
+    fi
+    echo "$docker_error" >&2
+    exit 1
+  fi
+}
+
 install_tools() {
   local repo_path="$1"
 
@@ -310,6 +333,7 @@ upgrade_repo() {
   copy_template "$repo_path" "$TEMPLATE_DIR"
   ensure_screenshots_dir
   require_devcontainer_cli
+  require_docker_daemon
   devcontainer up --workspace-folder "$repo_path"
   install_tools "$repo_path"
 }
@@ -449,6 +473,7 @@ main() {
       replace_template "$REPO_PATH" "$TEMPLATE_DIR"
       ensure_screenshots_dir
       require_devcontainer_cli
+      require_docker_daemon
       devcontainer up --workspace-folder "$REPO_PATH" --remove-existing-container --build-no-cache
       devcontainer exec --workspace-folder "$REPO_PATH" tmux new -As "$TMUX_SESSION"
       ;;
@@ -456,6 +481,7 @@ main() {
       copy_template "$REPO_PATH" "$TEMPLATE_DIR"
       ensure_screenshots_dir
       require_devcontainer_cli
+      require_docker_daemon
       devcontainer up --workspace-folder "$REPO_PATH"
       devcontainer exec --workspace-folder "$REPO_PATH" tmux new -As "$TMUX_SESSION"
       ;;
@@ -463,6 +489,7 @@ main() {
       copy_template "$REPO_PATH" "$TEMPLATE_DIR"
       ensure_screenshots_dir
       require_devcontainer_cli
+      require_docker_daemon
       if [[ $# -gt 0 && "$1" == "--" ]]; then
         shift
       fi
@@ -473,7 +500,7 @@ main() {
       upgrade_repo "$REPO_PATH"
       ;;
     upgrade-all)
-      require_docker_cli
+      require_docker_daemon
       local repo_paths=()
       local repo_path=""
 
@@ -497,7 +524,7 @@ main() {
       done
       ;;
     down)
-      require_docker_cli
+      require_docker_daemon
       local label="devcontainer.local_folder=$REPO_PATH"
       local containers=""
 
@@ -510,7 +537,7 @@ main() {
       docker rm -f $containers
       ;;
     stop)
-      require_docker_cli
+      require_docker_daemon
       local label="devcontainer.local_folder=$REPO_PATH"
       local containers=""
 
@@ -559,6 +586,7 @@ main() {
       update_devcontainer_mounts "$REPO_PATH/.devcontainer/devcontainer.json" "$host_path" "$container_path" "$readonly"
       ensure_screenshots_dir
       require_devcontainer_cli
+      require_docker_daemon
       devcontainer up --workspace-folder "$REPO_PATH" --remove-existing-container
       ;;
   esac
