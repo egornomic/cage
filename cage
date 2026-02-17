@@ -188,6 +188,75 @@ with open(devcontainer_path, "w", encoding="utf-8") as fh:
 PY
 }
 
+sync_optional_agents_mount() {
+  local devcontainer_path="$1"
+  local host_agents_dir="$HOME/.agents"
+
+  python3 - "$devcontainer_path" "$host_agents_dir" <<'PY'
+import json
+import os
+import sys
+from typing import Optional
+
+def die(msg):
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+if len(sys.argv) != 3:
+    die("sync optional agents mount requires devcontainer.json and host agents dir")
+
+devcontainer_path, host_agents_dir = sys.argv[1:]
+agents_target = "/home/node/.agents"
+agents_mount = "source=${localEnv:HOME}/.agents,target=/home/node/.agents,type=bind,consistency=cached,readonly"
+
+try:
+    with open(devcontainer_path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except FileNotFoundError:
+    die(f"devcontainer.json not found: {devcontainer_path}")
+
+mounts = data.get("mounts")
+if mounts is None:
+    mounts = []
+if not isinstance(mounts, list):
+    die("mounts must be a JSON array")
+
+for entry in mounts:
+    if not isinstance(entry, str):
+        die("mounts entries must be strings")
+
+has_host_agents = os.path.isdir(host_agents_dir)
+
+def parse_target(value: str) -> Optional[str]:
+    for part in value.split(","):
+        if "=" in part:
+            key, val = part.split("=", 1)
+            if key == "target":
+                return val
+    return None
+
+new_mounts = []
+has_agents_mount = False
+for entry in mounts:
+    target = parse_target(entry)
+    if target == agents_target:
+        if has_host_agents and not has_agents_mount:
+            new_mounts.append(entry)
+            has_agents_mount = True
+        continue
+    new_mounts.append(entry)
+
+if has_host_agents and not has_agents_mount:
+    new_mounts.append(agents_mount)
+
+if new_mounts != mounts:
+    data["mounts"] = new_mounts
+    with open(devcontainer_path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+        fh.write("\n")
+PY
+}
+
 copy_template() {
   local repo_path="$1"
   local src_dir="$2"
@@ -211,6 +280,7 @@ copy_template() {
     rm -f "$existing_mounts_file" || true
   fi
 
+  sync_optional_agents_mount "$dest_dir/devcontainer.json"
 
   echo "✓ devcontainer installed to: $dest_dir" >&2
 }
