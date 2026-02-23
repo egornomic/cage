@@ -375,7 +375,8 @@ install_tools() {
   devcontainer exec --workspace-folder "$repo_path" npm install -g \
     @anthropic-ai/claude-code \
     @openai/codex \
-    @mariozechner/pi-coding-agent
+    @mariozechner/pi-coding-agent \
+    rust-just
 }
 
 list_running_cage_repos() {
