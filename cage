@@ -188,11 +188,12 @@ with open(devcontainer_path, "w", encoding="utf-8") as fh:
 PY
 }
 
-sync_optional_agents_mount() {
+sync_optional_mounts() {
   local devcontainer_path="$1"
   local host_agents_dir="$HOME/.agents"
+  local host_codex_prompts_dir="$HOME/.codex/prompts"
 
-  python3 - "$devcontainer_path" "$host_agents_dir" <<'PY'
+  python3 - "$devcontainer_path" "$host_agents_dir" "$host_codex_prompts_dir" <<'PY'
 import json
 import os
 import sys
@@ -202,12 +203,26 @@ def die(msg):
     print(f"error: {msg}", file=sys.stderr)
     sys.exit(1)
 
-if len(sys.argv) != 3:
-    die("sync optional agents mount requires devcontainer.json and host agents dir")
+if len(sys.argv) != 4:
+    die("sync optional mounts requires devcontainer.json and optional host dirs")
 
-devcontainer_path, host_agents_dir = sys.argv[1:]
-agents_target = "/home/node/.agents"
-agents_mount = "source=${localEnv:HOME}/.agents,target=/home/node/.agents,type=bind,consistency=cached,readonly"
+devcontainer_path, host_agents_dir, host_codex_prompts_dir = sys.argv[1:]
+optional_mount_specs = [
+    {
+        "target": "/home/node/.agents",
+        "mount": "source=${localEnv:HOME}/.agents,target=/home/node/.agents,type=bind,consistency=cached,readonly",
+        "host_path": host_agents_dir,
+    },
+    {
+        "target": "/home/node/.codex/prompts",
+        "mount": "source=${localEnv:HOME}/.codex/prompts,target=/home/node/.codex/prompts,type=bind,consistency=cached,readonly",
+        "host_path": host_codex_prompts_dir,
+    },
+]
+optional_mount_targets = [spec["target"] for spec in optional_mount_specs]
+optional_mount_target_set = set(optional_mount_targets)
+host_paths_present = {spec["target"] for spec in optional_mount_specs if os.path.isdir(spec["host_path"])}
+spec_by_target = {spec["target"]: spec for spec in optional_mount_specs}
 
 try:
     with open(devcontainer_path, "r", encoding="utf-8") as fh:
@@ -225,8 +240,6 @@ for entry in mounts:
     if not isinstance(entry, str):
         die("mounts entries must be strings")
 
-has_host_agents = os.path.isdir(host_agents_dir)
-
 def parse_target(value: str) -> Optional[str]:
     for part in value.split(","):
         if "=" in part:
@@ -236,18 +249,20 @@ def parse_target(value: str) -> Optional[str]:
     return None
 
 new_mounts = []
-has_agents_mount = False
+seen_optional_targets = set()
 for entry in mounts:
     target = parse_target(entry)
-    if target == agents_target:
-        if has_host_agents and not has_agents_mount:
+    if target in optional_mount_target_set:
+        if target in host_paths_present and target not in seen_optional_targets:
             new_mounts.append(entry)
-            has_agents_mount = True
+            seen_optional_targets.add(target)
         continue
     new_mounts.append(entry)
 
-if has_host_agents and not has_agents_mount:
-    new_mounts.append(agents_mount)
+for target in optional_mount_targets:
+    if target in host_paths_present and target not in seen_optional_targets:
+        new_mounts.append(spec_by_target[target]["mount"])
+        seen_optional_targets.add(target)
 
 if new_mounts != mounts:
     data["mounts"] = new_mounts
@@ -280,7 +295,7 @@ copy_template() {
     rm -f "$existing_mounts_file" || true
   fi
 
-  sync_optional_agents_mount "$dest_dir/devcontainer.json"
+  sync_optional_mounts "$dest_dir/devcontainer.json"
 
   echo "✓ devcontainer installed to: $dest_dir" >&2
 }
