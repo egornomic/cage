@@ -192,8 +192,9 @@ sync_optional_mounts() {
   local devcontainer_path="$1"
   local host_agents_dir="$HOME/.agents"
   local host_codex_prompts_dir="$HOME/.codex/prompts"
+  local host_codex_agents_file="$HOME/.codex/AGENTS.md"
 
-  python3 - "$devcontainer_path" "$host_agents_dir" "$host_codex_prompts_dir" <<'PY'
+  python3 - "$devcontainer_path" "$host_agents_dir" "$host_codex_prompts_dir" "$host_codex_agents_file" <<'PY'
 import json
 import os
 import sys
@@ -203,26 +204,44 @@ def die(msg):
     print(f"error: {msg}", file=sys.stderr)
     sys.exit(1)
 
-if len(sys.argv) != 4:
+if len(sys.argv) != 5:
     die("sync optional mounts requires devcontainer.json and optional host dirs")
 
-devcontainer_path, host_agents_dir, host_codex_prompts_dir = sys.argv[1:]
+devcontainer_path, host_agents_dir, host_codex_prompts_dir, host_codex_agents_file = sys.argv[1:]
 optional_mount_specs = [
     {
         "target": "/home/node/.agents",
         "mount": "source=${localEnv:HOME}/.agents,target=/home/node/.agents,type=bind,consistency=cached,readonly",
         "host_path": host_agents_dir,
+        "host_kind": "dir",
     },
     {
         "target": "/home/node/.codex/prompts",
         "mount": "source=${localEnv:HOME}/.codex/prompts,target=/home/node/.codex/prompts,type=bind,consistency=cached,readonly",
         "host_path": host_codex_prompts_dir,
+        "host_kind": "dir",
+    },
+    {
+        "target": "/home/node/.codex/AGENTS.md",
+        "mount": "source=${localEnv:HOME}/.codex/AGENTS.md,target=/home/node/.codex/AGENTS.md,type=bind,consistency=cached,readonly",
+        "host_path": host_codex_agents_file,
+        "host_kind": "file",
     },
 ]
 optional_mount_targets = [spec["target"] for spec in optional_mount_specs]
 optional_mount_target_set = set(optional_mount_targets)
-host_paths_present = {spec["target"] for spec in optional_mount_specs if os.path.isdir(spec["host_path"])}
 spec_by_target = {spec["target"]: spec for spec in optional_mount_specs}
+
+def host_path_present(spec: dict) -> bool:
+    host_kind = spec.get("host_kind")
+    host_path = spec["host_path"]
+    if host_kind == "dir":
+        return os.path.isdir(host_path)
+    if host_kind == "file":
+        return os.path.isfile(host_path)
+    die(f"unsupported optional mount host kind: {host_kind}")
+
+host_paths_present = {spec["target"] for spec in optional_mount_specs if host_path_present(spec)}
 
 try:
     with open(devcontainer_path, "r", encoding="utf-8") as fh:
