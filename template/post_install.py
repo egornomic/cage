@@ -30,6 +30,9 @@ set -g mouse on
 set -g history-limit 200000
 set -g renumber-windows on
 setw -g mode-keys vi
+set -g base-index 1
+setw -g pane-base-index 1
+set -g renumber-windows on
 
 # Keep new panes/windows in the same cwd
 bind c new-window -c "#{pane_current_path}"
