@@ -34,6 +34,7 @@ set -g base-index 1
 setw -g pane-base-index 1
 set -g renumber-windows on
 set -g extended-keys on
+set -g extended-keys-format csi-u
 
 # Keep new panes/windows in the same cwd
 bind c new-window -c "#{pane_current_path}"
