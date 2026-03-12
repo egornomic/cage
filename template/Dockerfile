@@ -34,6 +34,33 @@ RUN --mount=type=cache,target=/root/.npm \
   && corepack enable --install-directory /usr/local/share/npm-global/bin \
   && corepack prepare pnpm@latest --activate
 
+FROM ubuntu:25.10 AS tmux-builder
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  apt-get update && apt-get install -y --no-install-recommends \
+    bison \
+    build-essential \
+    ca-certificates \
+    curl \
+    jq \
+    libevent-dev \
+    libncurses-dev \
+    pkg-config \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN cd /tmp \
+  && TMUX_RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/tmux/tmux/releases/latest)" \
+  && TMUX_VERSION="$(printf '%s' "${TMUX_RELEASE_JSON}" | jq -er '.tag_name')" \
+  && TMUX_TARBALL_URL="$(printf '%s' "${TMUX_RELEASE_JSON}" | jq -er --arg version "${TMUX_VERSION}" '.assets[] | select(.name == ("tmux-" + $version + ".tar.gz")) | .browser_download_url')" \
+  && TMUX_SHA256="$(printf '%s' "${TMUX_RELEASE_JSON}" | jq -er --arg version "${TMUX_VERSION}" '.assets[] | select(.name == ("tmux-" + $version + ".tar.gz")) | .digest' | sed 's/^sha256://')" \
+  && curl -fsSL --retry 3 --retry-all-errors "${TMUX_TARBALL_URL}" -o tmux.tar.gz \
+  && echo "${TMUX_SHA256}  tmux.tar.gz" | sha256sum -c - \
+  && tar -xzf tmux.tar.gz \
+  && cd "tmux-${TMUX_VERSION}" \
+  && ./configure --prefix=/usr/local \
+  && make -j"$(nproc)" \
+  && make install
+
 FROM ubuntu:25.10
 
 ARG TZ
@@ -71,9 +98,11 @@ RUN if command -v fdfind >/dev/null 2>&1 && [ ! -e /usr/local/bin/fd ]; then \
     ln -s /usr/bin/fdfind /usr/local/bin/fd; \
   fi
 
+COPY --from=tmux-builder /usr/local/bin/tmux /usr/local/bin/tmux
+
 # Bring in node + npm from the official node image (fast, no apt deps).
 COPY --from=node /usr/local/ /usr/local/
-RUN node -v && npm -v
+RUN node -v && npm -v && tmux -V
 
 # Ensure git worktrees use relative paths by default.
 RUN git config --system worktree.useRelativePaths true \
