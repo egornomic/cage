@@ -32,7 +32,6 @@ set -g renumber-windows on
 setw -g mode-keys vi
 set -g base-index 1
 setw -g pane-base-index 1
-set -g renumber-windows on
 set -g extended-keys on
 set -g extended-keys-format csi-u
 
