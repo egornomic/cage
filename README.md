@@ -12,8 +12,7 @@ Opinionated devcontainer launcher to run agents in yolo mode with persistent con
 Homebrew:
 
 ```bash
-brew tap egornomic/cage
-brew install cage
+brew install egornomic/tap/cage
 ```
 
 Fallback (from source):
